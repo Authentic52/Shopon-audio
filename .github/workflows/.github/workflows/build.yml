@@ -1,0 +1,1259 @@
+name: APK বানান
+# এই ফাইলটি GitHub-এ .github/workflows/build.yml নামে রাখুন।
+# Actions ট্যাব থেকে "APK বানান" চালালে Releases পাতায় app-release.apk পাবেন।
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: প্রজেক্ট তৈরি ও APK বিল্ড
+        run: |
+          set -e
+          mkdir app
+          cd app
+          flutter create --platforms=android --org com.shopon --project-name shopon_islamic_audio_library .
+          rm -f test/widget_test.dart
+          mkdir -p assets
+          cat > pubspec.yaml <<'EOF_PUBSPEC'
+          name: shopon_islamic_audio_library
+          description: A Bengali Islamic audio library starter app.
+          publish_to: "none"
+          version: 0.1.0+1
+
+          environment:
+            sdk: ">=3.3.0 <4.0.0"
+
+          dependencies:
+            flutter:
+              sdk: flutter
+            just_audio: ^0.9.42
+            just_audio_background: ^0.0.1-beta.15
+            audio_service: ^0.18.15
+            dio: ^5.7.0
+            path_provider: ^2.1.5
+            shared_preferences: ^2.3.3
+            file_picker: ">=8.1.4 <11.0.0"
+
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
+            flutter_lints: ^5.0.0
+
+          flutter:
+            uses-material-design: true
+            assets:
+              - assets/catalog.json
+          EOF_PUBSPEC
+          cat > assets/catalog.json <<'EOF_CATALOG'
+          {
+            "appName": "Shopon Islamic Audio",
+            "notice": "Demo catalogue. Add only audio you own or are authorized to distribute.",
+            "scholars": [
+              {
+                "name": "শায়খ আহমাদুল্লাহ",
+                "region": "বাংলাদেশ",
+                "tracks": []
+              },
+              {
+                "name": "মিজানুর রহমান আজহারী",
+                "region": "বাংলাদেশ",
+                "tracks": []
+              },
+              {
+                "name": "ড. খোন্দকার আব্দুল্লাহ জাহাঙ্গীর (রহ.)",
+                "region": "বাংলাদেশ",
+                "tracks": []
+              },
+              {
+                "name": "মুফতি আমির হামজা",
+                "region": "বাংলাদেশ",
+                "tracks": []
+              },
+              {
+                "name": "আবু ত্বহা মুহাম্মদ আদনান",
+                "region": "বাংলাদেশ",
+                "tracks": []
+              },
+              {
+                "name": "ড. জাকির নায়েক",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              },
+              {
+                "name": "ড. ওমর সুলাইমান",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              },
+              {
+                "name": "নোমান আলী খান",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              },
+              {
+                "name": "মুফতি মেনক",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              },
+              {
+                "name": "ড. ইয়াসির কাদি",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              },
+              {
+                "name": "ড. বিলাল ফিলিপস",
+                "region": "আন্তর্জাতিক",
+                "tracks": []
+              }
+            ],
+            "categories": [
+              "কুরআনের তাফসির",
+              "সহিহ হাদিস ও সুন্নাহ",
+              "নবী-রাসুলদের জীবনী",
+              "ইসলামি ইতিহাস",
+              "আখিরাত ও কিয়ামত",
+              "আত্মশুদ্ধি ও চরিত্র গঠন",
+              "পারিবারিক ও সামাজিক জীবন",
+              "প্রশ্নোত্তর"
+            ],
+            "tracks": []
+          }
+          EOF_CATALOG
+          cat > lib/main.dart <<'EOF_MAIN'
+          import 'dart:async';
+          import 'dart:convert';
+          import 'dart:io';
+
+          import 'package:dio/dio.dart';
+          import 'package:file_picker/file_picker.dart';
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart' show rootBundle;
+          import 'package:just_audio/just_audio.dart';
+          import 'package:just_audio_background/just_audio_background.dart';
+          import 'package:path_provider/path_provider.dart';
+          import 'package:shared_preferences/shared_preferences.dart';
+
+          const Color kGold = Color(0xFFC7A45A);
+          const Color kGoldSoft = Color(0xFFE9D49B);
+          const Color kCard = Color(0xFF14231D);
+          const Color kBg = Color(0xFF0C1713);
+          const List<String> kRegions = ['বাংলাদেশ', 'আন্তর্জাতিক'];
+
+          Future<void> main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+            await JustAudioBackground.init(
+              androidNotificationChannelId: 'com.shopon.islamic_audio.channel',
+              androidNotificationChannelName: 'Shopon Islamic Audio',
+              androidNotificationOngoing: true,
+            );
+            runApp(const ShoponAudioApp());
+          }
+
+          class ShoponAudioApp extends StatelessWidget {
+            const ShoponAudioApp({super.key});
+
+            @override
+            Widget build(BuildContext context) => MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  title: 'Shopon Islamic Audio',
+                  theme: ThemeData(
+                    brightness: Brightness.dark,
+                    scaffoldBackgroundColor: kBg,
+                    colorScheme: ColorScheme.fromSeed(
+                      seedColor: kGold,
+                      brightness: Brightness.dark,
+                      surface: kCard,
+                    ),
+                    appBarTheme: const AppBarTheme(
+                      backgroundColor: Color(0xFF10251D),
+                      foregroundColor: kGoldSoft,
+                    ),
+                    useMaterial3: true,
+                  ),
+                  home: const LibraryHome(),
+                );
+          }
+
+          /* ------------------------------ models ------------------------------ */
+
+          class Scholar {
+            final String name;
+            final String region;
+            final bool custom;
+            const Scholar({required this.name, required this.region, this.custom = false});
+
+            Map<String, dynamic> toJson() => {'name': name, 'region': region};
+
+            factory Scholar.fromJson(Map<String, dynamic> j, {bool custom = false}) => Scholar(
+                  name: (j['name'] ?? '') as String,
+                  region: (j['region'] ?? '') as String,
+                  custom: custom,
+                );
+          }
+
+          class Track {
+            final String id;
+            final String title;
+            final String scholar;
+            final String category;
+            final String url;
+            final bool custom;
+            const Track({
+              required this.id,
+              required this.title,
+              required this.scholar,
+              required this.category,
+              required this.url,
+              this.custom = false,
+            });
+
+            Map<String, dynamic> toJson() => {
+                  'id': id,
+                  'title': title,
+                  'scholar': scholar,
+                  'category': category,
+                  'url': url,
+                };
+
+            factory Track.fromJson(Map<String, dynamic> j, {String? id, bool custom = false}) => Track(
+                  id: (j['id'] as String?) ?? id ?? '',
+                  title: (j['title'] ?? '') as String,
+                  scholar: (j['scholar'] ?? '') as String,
+                  category: (j['category'] ?? '') as String,
+                  url: (j['url'] ?? '') as String,
+                  custom: custom,
+                );
+          }
+
+          class AddResult {
+            final Track track;
+            final String? localPath;
+            final Scholar? newScholar;
+            const AddResult(this.track, this.localPath, this.newScholar);
+          }
+
+          List<Map<String, dynamic>> decodeList(String? s) {
+            if (s == null || s.isEmpty) return [];
+            try {
+              final v = jsonDecode(s);
+              if (v is List) {
+                return v.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+              }
+            } catch (_) {}
+            return [];
+          }
+
+          String fmt(Duration d) {
+            final s = d.inSeconds;
+            final h = s ~/ 3600;
+            final m = (s % 3600) ~/ 60;
+            final x = s % 60;
+            final mm = h > 0 ? m.toString().padLeft(2, '0') : m.toString();
+            final xx = x.toString().padLeft(2, '0');
+            return h > 0 ? '$h:$mm:$xx' : '$mm:$xx';
+          }
+
+          /* ------------------------------ home ------------------------------ */
+
+          class LibraryHome extends StatefulWidget {
+            const LibraryHome({super.key});
+            @override
+            State<LibraryHome> createState() => _LibraryHomeState();
+          }
+
+          class _LibraryHomeState extends State<LibraryHome> {
+            final AudioPlayer _player = AudioPlayer();
+            final Dio _dio = Dio();
+            SharedPreferences? _prefs;
+
+            List<String> _categories = [];
+            List<Scholar> _scholars = [];
+            List<Track> _tracks = [];
+            Set<String> _favs = {};
+            Map<String, String> _paths = {};
+            final Set<String> _busy = {};
+
+            String _query = '';
+            String _cat = 'সব';
+            int _tab = 0;
+            bool _loading = true;
+
+            Track? _current;
+            Duration _pos = Duration.zero;
+            Duration _dur = Duration.zero;
+            double? _drag;
+            double _speed = 1;
+
+            Timer? _sleepTick;
+            int _sleepLeft = 0;
+
+            @override
+            void initState() {
+              super.initState();
+              _init();
+              _player.positionStream.listen((p) {
+                if (mounted) setState(() => _pos = p);
+              });
+              _player.durationStream.listen((d) {
+                if (mounted && d != null) setState(() => _dur = d);
+              });
+            }
+
+            @override
+            void dispose() {
+              _sleepTick?.cancel();
+              _player.dispose();
+              super.dispose();
+            }
+
+            Future<void> _init() async {
+              final prefs = await SharedPreferences.getInstance();
+              final raw = await rootBundle.loadString('assets/catalog.json');
+              final data = jsonDecode(raw) as Map<String, dynamic>;
+
+              final scholars = <Scholar>[];
+              for (final s in (data['scholars'] as List? ?? [])) {
+                scholars.add(Scholar.fromJson(Map<String, dynamic>.from(s as Map)));
+              }
+              final cats = List<String>.from(data['categories'] as List? ?? []);
+
+              final tracks = <Track>[];
+              var i = 0;
+              for (final t in (data['tracks'] as List? ?? [])) {
+                tracks.add(Track.fromJson(Map<String, dynamic>.from(t as Map), id: 'cat-${i++}'));
+              }
+              for (final s in decodeList(prefs.getString('custom_scholars'))) {
+                scholars.add(Scholar.fromJson(s, custom: true));
+              }
+              for (final t in decodeList(prefs.getString('custom_tracks'))) {
+                tracks.add(Track.fromJson(t, custom: true));
+              }
+
+              final paths = <String, String>{};
+              try {
+                final m = jsonDecode(prefs.getString('paths') ?? '{}') as Map;
+                m.forEach((k, v) => paths[k.toString()] = v.toString());
+              } catch (_) {}
+
+              if (!mounted) return;
+              setState(() {
+                _prefs = prefs;
+                _scholars = scholars;
+                _categories = cats;
+                _tracks = tracks;
+                _favs = (prefs.getStringList('favorites') ?? []).toSet();
+                _paths = paths;
+                _loading = false;
+              });
+            }
+
+            Future<void> _persist() async {
+              final p = _prefs;
+              if (p == null) return;
+              await p.setString('custom_scholars',
+                  jsonEncode(_scholars.where((s) => s.custom).map((s) => s.toJson()).toList()));
+              await p.setString('custom_tracks',
+                  jsonEncode(_tracks.where((t) => t.custom).map((t) => t.toJson()).toList()));
+              await p.setStringList('favorites', _favs.toList());
+              await p.setString('paths', jsonEncode(_paths));
+            }
+
+            void _msg(String m) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(content: Text(m)));
+            }
+
+            Future<Directory> _audioDir() async {
+              final d = await getApplicationDocumentsDirectory();
+              final a = Directory('${d.path}/audio');
+              if (!await a.exists()) await a.create(recursive: true);
+              return a;
+            }
+
+            /* ---------- playback ---------- */
+
+            Future<void> _play(Track t) async {
+              if (_current?.id == t.id) {
+                if (_player.playing) {
+                  _player.pause();
+                } else {
+                  _player.play();
+                }
+                return;
+              }
+              Uri? uri;
+              final local = _paths[t.id];
+              if (local != null && await File(local).exists()) {
+                uri = Uri.file(local);
+              } else if (t.url.isNotEmpty) {
+                uri = Uri.parse(t.url);
+              }
+              if (uri == null) {
+                _msg('এই আলোচনার অডিও ফাইল বা লিংক পাওয়া যায়নি।');
+                return;
+              }
+              try {
+                await _player.setAudioSource(AudioSource.uri(
+                  uri,
+                  tag: MediaItem(id: t.id, title: t.title, artist: t.scholar, album: 'Shopon Islamic Audio'),
+                ));
+                await _player.setSpeed(_speed);
+                if (!mounted) return;
+                setState(() {
+                  _current = t;
+                  _pos = Duration.zero;
+                });
+                _player.play();
+              } catch (_) {
+                _msg('অডিও চালানো যায়নি। লিংকটি পরীক্ষা করুন।');
+              }
+            }
+
+            void _seekBy(int seconds) {
+              var target = _pos + Duration(seconds: seconds);
+              if (target < Duration.zero) target = Duration.zero;
+              if (_dur > Duration.zero && target > _dur) target = _dur;
+              _player.seek(target);
+            }
+
+            void _cycleSpeed() {
+              const speeds = [1.0, 1.25, 1.5, 2.0, 0.75];
+              final next = speeds[(speeds.indexOf(_speed) + 1) % speeds.length];
+              setState(() => _speed = next);
+              _player.setSpeed(next);
+            }
+
+            Future<void> _closePlayer() async {
+              await _player.stop();
+              if (mounted) setState(() => _current = null);
+            }
+
+            /* ---------- sleep timer ---------- */
+
+            void _setSleep(int minutes) {
+              _sleepTick?.cancel();
+              setState(() => _sleepLeft = 0);
+              if (minutes == 0) {
+                _msg('Sleep Timer বন্ধ করা হয়েছে।');
+                return;
+              }
+              final end = DateTime.now().add(Duration(minutes: minutes));
+              setState(() => _sleepLeft = minutes * 60);
+              _sleepTick = Timer.periodic(const Duration(seconds: 1), (t) {
+                final left = end.difference(DateTime.now()).inSeconds;
+                if (!mounted) {
+                  t.cancel();
+                  return;
+                }
+                if (left <= 0) {
+                  t.cancel();
+                  _player.pause();
+                  setState(() => _sleepLeft = 0);
+                } else {
+                  setState(() => _sleepLeft = left);
+                }
+              });
+              _msg('$minutes মিনিট পর অডিও বন্ধ হবে।');
+            }
+
+            void _openSleepSheet() {
+              showModalBottomSheet<void>(
+                context: context,
+                builder: (ctx) => SafeArea(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const ListTile(title: Text('Sleep Timer')),
+                    for (final m in [15, 30, 45, 60])
+                      ListTile(
+                        title: Text('$m মিনিট'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _setSleep(m);
+                        },
+                      ),
+                    ListTile(
+                      title: const Text('Timer বন্ধ করুন'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _setSleep(0);
+                      },
+                    ),
+                  ]),
+                ),
+              );
+            }
+
+            /* ---------- favorites / downloads / delete ---------- */
+
+            Future<void> _toggleFav(Track t) async {
+              setState(() => _favs.contains(t.id) ? _favs.remove(t.id) : _favs.add(t.id));
+              await _persist();
+            }
+
+            Future<void> _download(Track t) async {
+              if (t.url.isEmpty) return;
+              setState(() => _busy.add(t.id));
+              try {
+                final dir = await _audioDir();
+                final path = '${dir.path}/${t.id}.mp3';
+                await _dio.download(t.url, path);
+                _paths[t.id] = path;
+                await _persist();
+                _msg('অফলাইনের জন্য ডাউনলোড হয়েছে।');
+              } catch (_) {
+                _msg('ডাউনলোড করা যায়নি। লিংক বা ইন্টারনেট পরীক্ষা করুন।');
+              } finally {
+                if (mounted) setState(() => _busy.remove(t.id));
+              }
+            }
+
+            Future<void> _deleteLocalFile(String id) async {
+              final p = _paths.remove(id);
+              if (p != null) {
+                try {
+                  final f = File(p);
+                  if (await f.exists()) await f.delete();
+                } catch (_) {}
+              }
+            }
+
+            Future<bool> _confirm(String text) async {
+              final r = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  content: Text(text),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('না')),
+                    FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('হ্যাঁ, মুছুন')),
+                  ],
+                ),
+              );
+              return r ?? false;
+            }
+
+            Future<void> _removeDownload(Track t) async {
+              if (_current?.id == t.id) await _closePlayer();
+              await _deleteLocalFile(t.id);
+              await _persist();
+              if (mounted) setState(() {});
+            }
+
+            Future<void> _deleteTrack(Track t) async {
+              if (!await _confirm('“${t.title}” মুছে ফেলবেন?')) return;
+              if (_current?.id == t.id) await _closePlayer();
+              await _deleteLocalFile(t.id);
+              _favs.remove(t.id);
+              _tracks.removeWhere((x) => x.id == t.id);
+              await _persist();
+              if (mounted) setState(() {});
+            }
+
+            Future<void> _deleteScholar(Scholar s) async {
+              final mine = _tracks.where((t) => t.custom && t.scholar == s.name).toList();
+              final extra = mine.isEmpty ? '' : ' তার ${mine.length}টি আলোচনাও মুছে যাবে।';
+              if (!await _confirm('“${s.name}” মুছে ফেলবেন?$extra')) return;
+              for (final t in mine) {
+                if (_current?.id == t.id) await _closePlayer();
+                await _deleteLocalFile(t.id);
+                _favs.remove(t.id);
+              }
+              _tracks.removeWhere((t) => t.custom && t.scholar == s.name);
+              _scholars.removeWhere((x) => x.custom && x.name == s.name);
+              await _persist();
+              if (mounted) setState(() {});
+            }
+
+            /* ---------- add scholar / add talk ---------- */
+
+            Future<void> _addScholar() async {
+              final nameC = TextEditingController();
+              var region = kRegions.first;
+              final s = await showDialog<Scholar>(
+                context: context,
+                builder: (ctx) => StatefulBuilder(
+                  builder: (ctx, setS) => AlertDialog(
+                    title: const Text('নতুন স্পিকার'),
+                    content: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                        controller: nameC,
+                        decoration: const InputDecoration(labelText: 'স্পিকারের নাম'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: region,
+                        decoration: const InputDecoration(labelText: 'অঞ্চল'),
+                        items: [for (final r in kRegions) DropdownMenuItem(value: r, child: Text(r))],
+                        onChanged: (v) => setS(() => region = v ?? region),
+                      ),
+                    ]),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('বাতিল')),
+                      FilledButton(
+                        onPressed: () {
+                          final n = nameC.text.trim();
+                          if (n.isEmpty) return;
+                          Navigator.pop(ctx, Scholar(name: n, region: region, custom: true));
+                        },
+                        child: const Text('যোগ করুন'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+              if (s == null || !mounted) return;
+              if (_scholars.any((x) => x.name == s.name)) {
+                _msg('এই নামের স্পিকার আগে থেকেই আছে।');
+                return;
+              }
+              setState(() => _scholars.add(s));
+              await _persist();
+              _msg('স্পিকার যোগ হয়েছে।');
+            }
+
+            Future<void> _addTrack({String? scholar}) async {
+              final dir = await _audioDir();
+              if (!mounted) return;
+              final res = await Navigator.push<AddResult>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AddTrackPage(
+                    scholars: List<Scholar>.from(_scholars),
+                    categories: _categories,
+                    initialScholar: scholar,
+                    audioDir: dir,
+                  ),
+                ),
+              );
+              if (res == null || !mounted) return;
+              setState(() {
+                if (res.newScholar != null) _scholars.add(res.newScholar!);
+                _tracks.add(res.track);
+                if (res.localPath != null) _paths[res.track.id] = res.localPath!;
+              });
+              await _persist();
+              _msg('আলোচনা যোগ হয়েছে।');
+            }
+
+            void _openAddMenu() {
+              showModalBottomSheet<void>(
+                context: context,
+                builder: (ctx) => SafeArea(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    ListTile(
+                      leading: const Icon(Icons.person_add_alt_1, color: kGoldSoft),
+                      title: const Text('নতুন স্পিকার যোগ করুন'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _addScholar();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.library_add, color: kGoldSoft),
+                      title: const Text('নতুন আলোচনা যোগ করুন'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _addTrack();
+                      },
+                    ),
+                  ]),
+                ),
+              );
+            }
+
+            /* ---------- lists ---------- */
+
+            List<Track> _filter(Iterable<Track> src) {
+              final q = _query.trim().toLowerCase();
+              return src.where((t) {
+                final okQ = q.isEmpty || '${t.title} ${t.scholar} ${t.category}'.toLowerCase().contains(q);
+                final okC = _cat == 'সব' || t.category == _cat;
+                return okQ && okC;
+              }).toList();
+            }
+
+            Widget _heading(String s) => Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 8),
+                  child: Text(s,
+                      style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: kGoldSoft)),
+                );
+
+            Widget _empty(String s) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 22),
+                  child: Text(s, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60)),
+                );
+
+            Widget _searchAndChips() => Column(children: [
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'আলেম, আলোচনা বা বিষয় খুঁজুন',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: kCard,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                    ),
+                    onChanged: (v) => setState(() => _query = v),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 42,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ['সব', ..._categories]
+                          .map((c) => Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(c),
+                                  selected: _cat == c,
+                                  onSelected: (_) => setState(() => _cat = c),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ]);
+
+            Widget _trackTile(Track t) {
+              final isCur = _current?.id == t.id;
+              final saved = _paths.containsKey(t.id);
+              final busy = _busy.contains(t.id);
+              final menu = <PopupMenuEntry<String>>[
+                if (t.url.isNotEmpty && !saved && !busy)
+                  const PopupMenuItem(value: 'dl', child: Text('ডাউনলোড করুন')),
+                if (t.url.isNotEmpty && saved)
+                  const PopupMenuItem(value: 'rmdl', child: Text('ডাউনলোড করা ফাইল মুছুন')),
+                if (t.custom) const PopupMenuItem(value: 'del', child: Text('আলোচনা মুছুন')),
+              ];
+              final fav = _favs.contains(t.id);
+              return Card(
+                color: kCard,
+                shape: isCur
+                    ? RoundedRectangleBorder(
+                        side: const BorderSide(color: kGold), borderRadius: BorderRadius.circular(12))
+                    : null,
+                child: ListTile(
+                  leading: StreamBuilder<PlayerState>(
+                    stream: _player.playerStateStream,
+                    builder: (_, snap) {
+                      final playing = isCur && (snap.data?.playing ?? false);
+                      return IconButton(
+                        icon: Icon(playing ? Icons.pause_circle : Icons.play_circle, size: 36, color: kGoldSoft),
+                        onPressed: () => _play(t),
+                      );
+                    },
+                  ),
+                  title: Text(t.title),
+                  subtitle: Text(
+                      '${t.scholar} • ${t.category}${saved ? ' • অফলাইন' : ''}${busy ? ' • ডাউনলোড হচ্ছে…' : ''}'),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(
+                      icon: Icon(fav ? Icons.favorite : Icons.favorite_border, color: fav ? kGold : null),
+                      onPressed: () => _toggleFav(t),
+                    ),
+                    if (menu.isNotEmpty)
+                      PopupMenuButton<String>(
+                        onSelected: (v) {
+                          if (v == 'dl') _download(t);
+                          if (v == 'rmdl') _removeDownload(t);
+                          if (v == 'del') _deleteTrack(t);
+                        },
+                        itemBuilder: (_) => menu,
+                      ),
+                  ]),
+                ),
+              );
+            }
+
+            Widget _libraryTab() {
+              final vis = _filter(_tracks);
+              final q = _query.trim().toLowerCase();
+              final schList = _scholars.where((s) {
+                if (q.isEmpty) return true;
+                return s.name.toLowerCase().contains(q) || vis.any((t) => t.scholar == s.name);
+              }).toList();
+
+              return ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: const LinearGradient(colors: [Color(0xFF174B38), Color(0xFF243629)]),
+                    border: Border.all(color: kGold.withValues(alpha: .55)),
+                  ),
+                  child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('ইলমের পথে চলুন',
+                        style: TextStyle(fontSize: 23, color: kGoldSoft, fontWeight: FontWeight.bold)),
+                    SizedBox(height: 6),
+                    Text('শুনুন • শিখুন • আমল করুন', style: TextStyle(color: Colors.white70)),
+                  ]),
+                ),
+                const SizedBox(height: 16),
+                _searchAndChips(),
+                _heading('স্কলার লাইব্রেরি'),
+                if (schList.isEmpty) _empty('কোনো স্পিকার পাওয়া যায়নি।'),
+                ...schList.map((s) {
+                  final mine = vis.where((t) => t.scholar == s.name).toList();
+                  final total = _tracks.where((t) => t.scholar == s.name).length;
+                  return Card(
+                    color: kCard,
+                    child: ExpansionTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFF28523E),
+                        child: Icon(Icons.person, color: kGoldSoft),
+                      ),
+                      title: Text(s.name),
+                      subtitle: Text('${s.region} • $totalটি আলোচনা'),
+                      childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                      children: [
+                        if (mine.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(10),
+                            child: Text('এই স্পিকারের কোনো আলোচনা যোগ করা হয়নি।',
+                                style: TextStyle(color: Colors.white70)),
+                          ),
+                        ...mine.map(_trackTile),
+                        Row(children: [
+                          TextButton.icon(
+                            onPressed: () => _addTrack(scholar: s.name),
+                            icon: const Icon(Icons.add),
+                            label: const Text('আলোচনা যোগ করুন'),
+                          ),
+                          const Spacer(),
+                          if (s.custom)
+                            TextButton(
+                              onPressed: () => _deleteScholar(s),
+                              child: const Text('স্পিকার মুছুন', style: TextStyle(color: Color(0xFFE58A7A))),
+                            ),
+                        ]),
+                      ],
+                    ),
+                  );
+                }),
+                _heading('সব আলোচনা'),
+                if (vis.isEmpty)
+                  _empty(_tracks.isEmpty
+                      ? 'এখনো কোনো আলোচনা যোগ করা হয়নি।\nনিচের “যোগ করুন” বোতাম থেকে নিজের বা অনুমতিপ্রাপ্ত অডিও যোগ করুন।'
+                      : 'এই খোঁজে কিছু মেলেনি।')
+                else
+                  ...vis.map(_trackTile),
+                const SizedBox(height: 16),
+                const Text(
+                  'এই অ্যাপে কোনো আলেমের আলোচনা আগে থেকে দেওয়া নেই। শুধু নিজের মালিকানার বা প্রচারের অনুমতি আছে এমন অডিও যোগ করুন। তালিকায় নাম থাকা মানে সমর্থন বোঝায় না।',
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+              ]);
+            }
+
+            Widget _favTab() {
+              final l = _filter(_tracks.where((t) => _favs.contains(t.id)));
+              return ListView(padding: const EdgeInsets.all(16), children: [
+                _searchAndChips(),
+                _heading('প্রিয় আলোচনা'),
+                if (l.isEmpty) _empty('কোনো প্রিয় আলোচনা নেই। হার্ট চিহ্নে চাপ দিয়ে যোগ করুন।') else ...l.map(_trackTile),
+              ]);
+            }
+
+            Widget _downloadTab() {
+              final l = _tracks.where((t) => _paths.containsKey(t.id)).toList();
+              return ListView(padding: const EdgeInsets.all(16), children: [
+                _heading('অফলাইন আলোচনা'),
+                if (l.isEmpty)
+                  _empty('ডাউনলোড করা বা ফোন থেকে যোগ করা আলোচনা এখানে দেখা যাবে।')
+                else
+                  ...l.map(_trackTile),
+              ]);
+            }
+
+            Widget _playerBar() {
+              final t = _current!;
+              final maxMs = _dur.inMilliseconds <= 0 ? 1.0 : _dur.inMilliseconds.toDouble();
+              final posMs = _pos.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+              return Container(
+                padding: const EdgeInsets.fromLTRB(16, 6, 8, 4),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF173629),
+                  border: Border(top: BorderSide(color: kGold)),
+                ),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Row(children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(t.scholar,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                      ]),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: _closePlayer),
+                  ]),
+                  Row(children: [
+                    Text(fmt(_pos), style: const TextStyle(fontSize: 12, color: Colors.white60)),
+                    Expanded(
+                      child: Slider(
+                        value: (_drag ?? posMs).clamp(0.0, maxMs),
+                        max: maxMs,
+                        onChanged: (v) => setState(() => _drag = v),
+                        onChangeEnd: (v) {
+                          _player.seek(Duration(milliseconds: v.toInt()));
+                          setState(() => _drag = null);
+                        },
+                      ),
+                    ),
+                    Text(fmt(_dur), style: const TextStyle(fontSize: 12, color: Colors.white60)),
+                  ]),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    TextButton(onPressed: _cycleSpeed, child: Text('${_speed}x')),
+                    IconButton(icon: const Icon(Icons.replay_10), onPressed: () => _seekBy(-10)),
+                    StreamBuilder<PlayerState>(
+                      stream: _player.playerStateStream,
+                      builder: (_, snap) {
+                        final playing = snap.data?.playing ?? false;
+                        return IconButton(
+                          iconSize: 42,
+                          icon: Icon(playing ? Icons.pause_circle : Icons.play_circle),
+                          onPressed: () => playing ? _player.pause() : _player.play(),
+                        );
+                      },
+                    ),
+                    IconButton(icon: const Icon(Icons.forward_10), onPressed: () => _seekBy(10)),
+                  ]),
+                ]),
+              );
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final body = _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : (_tab == 0 ? _libraryTab() : (_tab == 1 ? _favTab() : _downloadTab()));
+              return Scaffold(
+                appBar: AppBar(
+                  title: const Text('Shopon Islamic Audio', style: TextStyle(fontWeight: FontWeight.bold)),
+                  actions: [
+                    if (_sleepLeft > 0)
+                      Center(child: Text(fmt(Duration(seconds: _sleepLeft)), style: const TextStyle(fontSize: 13))),
+                    IconButton(
+                      tooltip: 'Sleep Timer',
+                      icon: const Icon(Icons.bedtime_outlined),
+                      onPressed: _openSleepSheet,
+                    ),
+                  ],
+                ),
+                body: body,
+                floatingActionButton: _loading
+                    ? null
+                    : FloatingActionButton.extended(
+                        onPressed: _openAddMenu,
+                        backgroundColor: kGold,
+                        foregroundColor: const Color(0xFF1B1608),
+                        icon: const Icon(Icons.add),
+                        label: const Text('যোগ করুন'),
+                      ),
+                bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (_current != null) _playerBar(),
+                  NavigationBar(
+                    selectedIndex: _tab,
+                    onDestinationSelected: (i) => setState(() => _tab = i),
+                    destinations: const [
+                      NavigationDestination(icon: Icon(Icons.home_outlined), label: 'লাইব্রেরি'),
+                      NavigationDestination(icon: Icon(Icons.favorite_border), label: 'প্রিয়'),
+                      NavigationDestination(icon: Icon(Icons.download_done), label: 'অফলাইন'),
+                    ],
+                  ),
+                ]),
+              );
+            }
+          }
+
+          /* ------------------------------ add talk page ------------------------------ */
+
+          class AddTrackPage extends StatefulWidget {
+            final List<Scholar> scholars;
+            final List<String> categories;
+            final String? initialScholar;
+            final Directory audioDir;
+            const AddTrackPage({
+              super.key,
+              required this.scholars,
+              required this.categories,
+              required this.initialScholar,
+              required this.audioDir,
+            });
+
+            @override
+            State<AddTrackPage> createState() => _AddTrackPageState();
+          }
+
+          class _AddTrackPageState extends State<AddTrackPage> {
+            static const String _newKey = '__new__';
+            final _title = TextEditingController();
+            final _url = TextEditingController();
+            final _newName = TextEditingController();
+            String _scholar = _newKey;
+            String _newRegion = kRegions.first;
+            String _cat = '';
+            String? _picked;
+            String? _pickedName;
+            bool _ok = false;
+            bool _saving = false;
+
+            @override
+            void initState() {
+              super.initState();
+              if (widget.initialScholar != null) {
+                _scholar = widget.initialScholar!;
+              } else if (widget.scholars.isNotEmpty) {
+                _scholar = widget.scholars.first.name;
+              }
+              if (widget.categories.isNotEmpty) _cat = widget.categories.first;
+            }
+
+            @override
+            void dispose() {
+              _title.dispose();
+              _url.dispose();
+              _newName.dispose();
+              super.dispose();
+            }
+
+            void _snack(String m) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(content: Text(m)));
+            }
+
+            Future<void> _pick() async {
+              final r = await FilePicker.platform.pickFiles(type: FileType.audio);
+              if (r == null || r.files.isEmpty) return;
+              final f = r.files.first;
+              final p = f.path;
+              if (p == null) return;
+              setState(() {
+                _picked = p;
+                _pickedName = f.name;
+              });
+            }
+
+            Future<void> _submit() async {
+              final title = _title.text.trim();
+              final url = _url.text.trim();
+              final picked = _picked;
+              if (title.isEmpty) {
+                _snack('আলোচনার শিরোনাম লিখুন।');
+                return;
+              }
+              if (picked == null && url.isEmpty) {
+                _snack('একটি অডিও ফাইল বাছাই করুন অথবা লিংক দিন।');
+                return;
+              }
+              if (picked == null && !url.startsWith('https://')) {
+                _snack('লিংক অবশ্যই https:// দিয়ে শুরু হতে হবে।');
+                return;
+              }
+              if (!_ok) {
+                _snack('অনুমতির ঘরে টিক দিন।');
+                return;
+              }
+              Scholar? newScholar;
+              var scholarName = _scholar;
+              if (_scholar == _newKey) {
+                final n = _newName.text.trim();
+                if (n.isEmpty) {
+                  _snack('নতুন স্পিকারের নাম লিখুন।');
+                  return;
+                }
+                scholarName = n;
+                if (!widget.scholars.any((s) => s.name == n)) {
+                  newScholar = Scholar(name: n, region: _newRegion, custom: true);
+                }
+              }
+              setState(() => _saving = true);
+              final id = 'u${DateTime.now().millisecondsSinceEpoch}';
+              String? local;
+              if (picked != null) {
+                try {
+                  final dot = picked.lastIndexOf('.');
+                  final ext = (dot >= 0 && picked.length - dot <= 6) ? picked.substring(dot) : '.mp3';
+                  final copied = await File(picked).copy('${widget.audioDir.path}/$id$ext');
+                  local = copied.path;
+                } catch (_) {
+                  if (mounted) setState(() => _saving = false);
+                  _snack('ফাইলটি সংরক্ষণ করা যায়নি।');
+                  return;
+                }
+              }
+              if (!mounted) return;
+              Navigator.pop(
+                context,
+                AddResult(
+                  Track(
+                    id: id,
+                    title: title,
+                    scholar: scholarName,
+                    category: _cat,
+                    url: local == null ? url : '',
+                    custom: true,
+                  ),
+                  local,
+                  newScholar,
+                ),
+              );
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('নতুন আলোচনা')),
+                body: ListView(padding: const EdgeInsets.all(16), children: [
+                  TextField(
+                    controller: _title,
+                    decoration: const InputDecoration(labelText: 'আলোচনার শিরোনাম', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: _scholar,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'স্পিকার', border: OutlineInputBorder()),
+                    items: [
+                      for (final s in widget.scholars)
+                        DropdownMenuItem(value: s.name, child: Text(s.name, overflow: TextOverflow.ellipsis)),
+                      const DropdownMenuItem(value: _newKey, child: Text('+ নতুন স্পিকার যোগ করুন')),
+                    ],
+                    onChanged: (v) => setState(() => _scholar = v ?? _scholar),
+                  ),
+                  if (_scholar == _newKey) ...[
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _newName,
+                      decoration: const InputDecoration(labelText: 'নতুন স্পিকারের নাম', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: _newRegion,
+                      decoration: const InputDecoration(labelText: 'অঞ্চল', border: OutlineInputBorder()),
+                      items: [for (final r in kRegions) DropdownMenuItem(value: r, child: Text(r))],
+                      onChanged: (v) => setState(() => _newRegion = v ?? _newRegion),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  if (widget.categories.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      initialValue: _cat,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'বিষয়', border: OutlineInputBorder()),
+                      items: [
+                        for (final c in widget.categories)
+                          DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) => setState(() => _cat = v ?? _cat),
+                    ),
+                  const SizedBox(height: 18),
+                  OutlinedButton.icon(
+                    onPressed: _pick,
+                    icon: const Icon(Icons.audio_file),
+                    label: const Text('ফোন থেকে অডিও ফাইল বাছাই করুন'),
+                  ),
+                  if (_pickedName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('বাছাই করা: $_pickedName', style: const TextStyle(color: kGoldSoft)),
+                    ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Center(child: Text('অথবা', style: TextStyle(color: Colors.white60))),
+                  ),
+                  TextField(
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'সরাসরি অডিও লিংক (https://…)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    value: _ok,
+                    onChanged: (v) => setState(() => _ok = v ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'এই অডিও আমার নিজের, অথবা এটি যোগ ও প্রচারের অনুমতি আমার আছে। YouTube বা অন্য প্ল্যাটফর্মের কনটেন্ট নামিয়ে পুনরায় প্রচার করা হবে না।',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _saving ? null : _submit,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(_saving ? 'সংরক্ষণ হচ্ছে…' : 'যোগ করুন'),
+                    ),
+                  ),
+                ]),
+              );
+            }
+          }
+          EOF_MAIN
+          cat > patch_android.py <<'EOF_PATCH'
+          import glob, re
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p, encoding="utf8").read()
+          if "xmlns:tools" not in s:
+              s = s.replace("<manifest ", '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
+          perms = """    <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+          """
+          s = s.replace("<application", perms + "    <application", 1)
+          svc = """        <service android:name="com.ryanheise.audioservice.AudioService"
+                      android:foregroundServiceType="mediaPlayback"
+                      android:exported="true" tools:ignore="Instantiatable">
+                      <intent-filter>
+                          <action android:name="android.media.browse.MediaBrowserService"/>
+                      </intent-filter>
+                  </service>
+                  <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+                      android:exported="true" tools:ignore="Instantiatable">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MEDIA_BUTTON"/>
+                      </intent-filter>
+                  </receiver>
+          """
+          s = s.replace("</application>", svc + "    </application>", 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Shopon Islamic Audio"', s, count=1)
+          open(p, "w", encoding="utf8").write(s)
+          for f in glob.glob("android/app/src/main/**/MainActivity.*", recursive=True):
+              t = open(f, encoding="utf8").read()
+              t = t.replace("import io.flutter.embedding.android.FlutterActivity",
+                            "import com.ryanheise.audioservice.AudioServiceActivity")
+              t = t.replace("FlutterActivity()", "AudioServiceActivity()")
+              open(f, "w", encoding="utf8").write(t)
+          print("patched")
+          EOF_PATCH
+          python3 patch_android.py
+          flutter pub get
+          flutter build apk --release
+
+      - name: Release-এ APK যোগ
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: Shopon Islamic Audio v0.1.${{ github.run_number }}
+          files: app/build/app/outputs/flutter-apk/app-release.apk
